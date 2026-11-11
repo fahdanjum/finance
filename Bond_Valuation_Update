@@ -1,0 +1,163 @@
+#%%
+import pandas as pd
+import numpy as np
+from io import StringIO
+import requests
+import urllib3
+import datetime
+from datetime import timedelta
+import matplotlib.pyplot as plt
+
+urllib3.disable_warnings()
+
+latest_business_day = datetime.date.today() - timedelta(days=1)
+# print(latest_business_day)
+
+start_date = '2026-10-02'
+end_date = '2026-10-02'
+
+# print(latest_business_day)
+
+url = f'https://www.bankofcanada.ca/valet/observations/TB.CDN.30D.MID%2CTB.CDN.60D.MID%2CTB.CDN.90D.MID%2CTB.CDN.180D.MID%2CTB.CDN.1Y.MID/csv?start_date={start_date}&end_date={end_date}'
+response = requests.get(url, verify=False)
+
+f = response.text.split('"OBSERVATIONS"')[1]
+
+rates_t_bills = pd.read_csv(StringIO(f))
+
+rates_t_bills = rates_t_bills.rename(
+    columns={'date': 'Date', 'TB.CDN.30D.MID': '1M', 'TB.CDN.60D.MID': '2M', 'TB.CDN.90D.MID': '3M',
+             'TB.CDN.180D.MID': '6M', 'TB.CDN.1Y.MID': '1Y'})
+
+rates_t_bills = rates_t_bills[['Date', '1M', '2M', '3M', '6M', '1Y']]
+
+rates_t_bills.set_index('Date', inplace=True)
+
+# # print(rates_t_bills)
+#got the benchmark bond yield group from VALET API GROUPS script. Used that on the BoC Valet API groups url generator to get url below then modified it.
+
+url_t_bonds = f'https://www.bankofcanada.ca/valet/observations/group/bond_yields_benchmark/csv?start_date={start_date}&end_date={end_date}'
+response_t_bonds = requests.get(url_t_bonds, verify=False)
+
+f = response_t_bonds.text.split('"OBSERVATIONS"')[1]
+
+rates_t_bonds = pd.read_csv(StringIO(f))
+
+rates_t_bonds = rates_t_bonds.rename(
+    columns={'date': 'Date', 'BD.CDN.2YR.DQ.YLD': '2Y', 'BD.CDN.3YR.DQ.YLD': '3Y', 'BD.CDN.5YR.DQ.YLD': '5Y',
+             'BD.CDN.7YR.DQ.YLD': '7Y', 'BD.CDN.10YR.DQ.YLD': '10Y', 'BD.CDN.LONG.DQ.YLD': '30Y+',
+             'BD.CDN.RRB.DQ.YLD': 'Real-Return'})
+
+rates_t_bonds.set_index('Date', inplace=True)
+
+# # print(rates_t_bonds)
+
+rates = pd.merge(rates_t_bills, rates_t_bonds, on='Date')
+rates.drop('Real-Return', axis=1, inplace=True)
+# print(rates)
+rates = rates.T
+# print(rates)
+rates = rates.reset_index()
+# print(rates.columns)
+rates = rates.rename(columns={rates.columns[0]: 'Label', rates.columns[1]: 'Yield'})
+rates['Term'] = ['0.083', '0.167', '0.25', '0.50', '1.00', '2.00', '3.00', '5.00', '7.00', '10.00', '30.00']
+rates['Term'] = rates['Term'].astype(float)
+# print(rates)
+rates['Yield'].interpolate(method='linear', inplace=False)
+# print(rates)
+# rates.plot(x='Label', y='Yield', kind='line')
+
+curve_terms = rates['Term']
+curve_yields = rates['Yield']
+interp_terms = np.linspace(0.083, 30, num=10000)
+interp_yields = np.interp(interp_terms, curve_terms, curve_yields)
+plt.plot(interp_terms, interp_yields)
+plt.plot(curve_terms, curve_yields, 'o', label='data')
+plt.legend(loc='best')
+plt.show()
+
+
+def curve_output(term):
+    if 0 <= term <= 30:
+        interpolated_yield = np.interp(term, rates['Term'], rates['Yield'])
+        return interpolated_yield
+    else:
+        print("Nope, try again between 0 and 30")
+        return None
+#%%
+ print(rates)
+#%%
+def discount_factor(yield_rate,term):
+    if yield_rate > 1:
+        yield_rate = yield_rate/100
+        denominator = (1 + yield_rate) ** term
+        discount = 1/denominator
+        return discount
+    else:
+        denominator = (1 + yield_rate) ** term
+        discount = 1/denominator
+        return discount
+#%%
+#note to self - improve this later - use vectorized operation or lambda function.
+for x in range(len(rates)):
+    rates.loc[x, 'Discount'] = discount_factor(yield_rate=rates.loc[x, 'Yield'], term=rates.loc[x, 'Term'])
+#%%
+print(rates)
+#%%
+discount_factor_terms = rates['Term']
+discount_factor_nodes = rates['Discount']
+interp_discount_factor_terms = np.linspace(0.083, 30, num=10000)
+interp_discount_factors = np.interp(interp_discount_factor_terms, discount_factor_terms, discount_factor_nodes)
+plt.plot(interp_discount_factor_terms, interp_discount_factors)
+plt.plot(discount_factor_terms, discount_factor_nodes, 'o', label='data')
+plt.legend(loc='best')
+plt.show()
+#%%
+def interp_discount_factor(term):
+    return np.interp(term,rates['Term'], rates['Discount'])
+
+#%%
+interp_discount_factor(5.0)
+#%%
+face_value = 1000
+coupon_rate = 3
+frequency = 2
+maturity_years = 5
+coupon_amount = (coupon_rate/100 * face_value)/frequency
+coupon_periods = frequency * maturity_years
+scale = 1/frequency
+
+#%%
+total_present_value_coupons = 0
+present_value_principal = 0
+
+for x in range(coupon_periods):
+    scale_counter = (x+1) * scale
+    pv_coupon = coupon_amount * interp_discount_factor(scale_counter)
+    total_present_value_coupons = total_present_value_coupons + pv_coupon
+    print(scale_counter, interp_discount_factor(scale_counter), pv_coupon)
+
+present_value_principal = face_value * interp_discount_factor(maturity_years)
+print(present_value_principal)
+bond_price = total_present_value_coupons + present_value_principal
+print("The price of the bond is {bond_price}".format(bond_price=bond_price))
+
+#%%
+def bond_value(face_value, coupon_rate, frequency, maturity_years):
+    coupon_amount = (coupon_rate/100 * face_value)/frequency
+    coupon_periods = frequency * maturity_years
+    scale = 1/frequency
+
+    total_present_value_coupons = 0
+
+
+    for x in range(coupon_periods):
+        scale_counter = (x+1) * scale
+        pv_coupon = coupon_amount * interp_discount_factor(scale_counter)
+        total_present_value_coupons = total_present_value_coupons + pv_coupon
+
+    present_value_principal = face_value * interp_discount_factor(maturity_years)
+    bond_price = total_present_value_coupons + present_value_principal
+    return bond_price
+#%%
+bond_value(1000, 3, 2, 5)
