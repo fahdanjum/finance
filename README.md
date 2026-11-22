@@ -27,7 +27,6 @@ DV01: $0.44 per 1 bp
 
 Based on Oct 2, 2026 Bank of Canada selected bond yield data. 
 
-Validation against the Bank of Canada published zero-coupon curve on 2026-10-02 showed deviations generally within ±6 basis points across key maturities.
 
 ## Current Simplifications
 
@@ -39,6 +38,8 @@ Version 1 intentionally makes several simplifying assumptions:
   the discount curve
 - No accrued-interest / clean-price treatment
 - ModDur calculated using interpolated curve output in place of optimized YTM.
+
+Validation against the Bank of Canada published zero-coupon curve on 2026-10-02 showed deviations generally within ±6 basis points across key maturities.
 
 These assumptions will be refined as the project develops.
 
