@@ -45,7 +45,7 @@ These assumptions will be refined as the project develops.
 
 ## Planned Development
 
-- Semi-annual and configurable coupon frequencies
+- Semi-annual and configurable coupon frequencies - Completed
 - Portfolio-level valuation and DV01
 - Key-rate DV01
 - Nelson-Siegel-Svensson curve fitting
